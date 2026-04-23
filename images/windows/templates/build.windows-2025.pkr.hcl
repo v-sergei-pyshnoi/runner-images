@@ -64,7 +64,6 @@ build {
       "${path.root}/../scripts/build/Configure-WindowsDefender.ps1",
       "${path.root}/../scripts/build/Configure-PowerShell.ps1",
       "${path.root}/../scripts/build/Install-PowerShellModules.ps1",
-      "${path.root}/../scripts/build/Install-WSL2.ps1",
       "${path.root}/../scripts/build/Install-WindowsFeatures.ps1",
       "${path.root}/../scripts/build/Install-Chocolatey.ps1",
       "${path.root}/../scripts/build/Configure-BaseImage.ps1",
@@ -115,20 +114,7 @@ build {
     restart_timeout = "10m"
   }
 
-  provisioner "powershell" {
-    pause_before     = "2m0s"
-    environment_vars = ["IMAGE_FOLDER=${var.image_folder}", "TEMP_DIR=${var.temp_dir}"]
-    scripts          = [
-      "${path.root}/../scripts/build/Install-Wix.ps1",
-      "${path.root}/../scripts/build/Install-VSExtensions.ps1",
-      "${path.root}/../scripts/build/Install-AzureCli.ps1",
-      "${path.root}/../scripts/build/Install-AzureDevOpsCli.ps1",
-      "${path.root}/../scripts/build/Install-ChocolateyPackages.ps1",
-      "${path.root}/../scripts/build/Install-JavaTools.ps1",
-      "${path.root}/../scripts/build/Install-Kotlin.ps1",
-      "${path.root}/../scripts/build/Install-OpenSSL.ps1"
-    ]
-  }
+
 
   provisioner "powershell" {
     execution_policy = "remotesigned"
@@ -140,61 +126,13 @@ build {
     restart_timeout = "10m"
   }
 
-  provisioner "powershell" {
-    environment_vars = ["IMAGE_FOLDER=${var.image_folder}", "TEMP_DIR=${var.temp_dir}"]
-    scripts          = [
-      "${path.root}/../scripts/build/Install-ActionsCache.ps1",
-      "${path.root}/../scripts/build/Install-Ruby.ps1",
-      "${path.root}/../scripts/build/Install-PyPy.ps1",
-      "${path.root}/../scripts/build/Install-Toolset.ps1",
-      "${path.root}/../scripts/build/Configure-Toolset.ps1",
-      "${path.root}/../scripts/build/Install-NodeJS.ps1",
-      "${path.root}/../scripts/build/Install-AndroidSDK.ps1",
-      "${path.root}/../scripts/build/Install-PowershellAzModules.ps1",
-      "${path.root}/../scripts/build/Install-Pipx.ps1",
-      "${path.root}/../scripts/build/Install-Git.ps1",
-      "${path.root}/../scripts/build/Install-GitHub-CLI.ps1",
-      "${path.root}/../scripts/build/Install-PHP.ps1",
-      "${path.root}/../scripts/build/Install-Rust.ps1",
-      "${path.root}/../scripts/build/Install-Sbt.ps1",
-      "${path.root}/../scripts/build/Install-Chrome.ps1",
-      "${path.root}/../scripts/build/Install-EdgeDriver.ps1",
-      "${path.root}/../scripts/build/Install-Firefox.ps1",
-      "${path.root}/../scripts/build/Install-Selenium.ps1",
-      "${path.root}/../scripts/build/Install-IEWebDriver.ps1",
-      "${path.root}/../scripts/build/Install-Apache.ps1",
-      "${path.root}/../scripts/build/Install-Nginx.ps1",
-      "${path.root}/../scripts/build/Install-Msys2.ps1",
-      "${path.root}/../scripts/build/Install-WinAppDriver.ps1",
-      "${path.root}/../scripts/build/Install-R.ps1",
-      "${path.root}/../scripts/build/Install-AWSTools.ps1",
-      "${path.root}/../scripts/build/Install-DACFx.ps1",
-      "${path.root}/../scripts/build/Install-MysqlCli.ps1",
-      "${path.root}/../scripts/build/Install-SQLPowerShellTools.ps1",
-      "${path.root}/../scripts/build/Install-SQLOLEDBDriver.ps1",
-      "${path.root}/../scripts/build/Install-DotnetSDK.ps1",
-      "${path.root}/../scripts/build/Install-Mingw64.ps1",
-      "${path.root}/../scripts/build/Install-Haskell.ps1",
-      "${path.root}/../scripts/build/Install-Stack.ps1",
-      "${path.root}/../scripts/build/Install-Miniconda.ps1",
-      "${path.root}/../scripts/build/Install-AzureCosmosDbEmulator.ps1",
-      "${path.root}/../scripts/build/Install-Zstd.ps1",
-      "${path.root}/../scripts/build/Install-Vcpkg.ps1",
-      "${path.root}/../scripts/build/Install-Bazel.ps1",
-      "${path.root}/../scripts/build/Install-RootCA.ps1",
-      "${path.root}/../scripts/build/Install-MongoDB.ps1",
-      "${path.root}/../scripts/build/Install-CodeQLBundle.ps1",
-      "${path.root}/../scripts/build/Configure-Diagnostics.ps1"
-    ]
-  }
+
 
   provisioner "powershell" {
     elevated_password = "${var.install_password}"
     elevated_user     = "${var.install_user}"
     environment_vars  = ["IMAGE_FOLDER=${var.image_folder}", "TEMP_DIR=${var.temp_dir}"]
     scripts           = [
-      "${path.root}/../scripts/build/Install-PostgreSQL.ps1",
-      "${path.root}/../scripts/build/Install-WindowsUpdates.ps1",
       "${path.root}/../scripts/build/Configure-DynamicPort.ps1",
       "${path.root}/../scripts/build/Configure-GDIProcessHandleQuota.ps1",
       "${path.root}/../scripts/build/Configure-Shell.ps1",
@@ -215,7 +153,6 @@ build {
     scripts          = [
       "${path.root}/../scripts/build/Install-WindowsUpdatesAfterReboot.ps1",
       "${path.root}/../scripts/build/Invoke-Cleanup.ps1",
-      "${path.root}/../scripts/tests/RunAll-Tests.ps1"
     ]
   }
 
