@@ -64,8 +64,6 @@ build {
       "${path.root}/../scripts/build/Configure-WindowsDefender.ps1",
       "${path.root}/../scripts/build/Configure-PowerShell.ps1",
       "${path.root}/../scripts/build/Install-PowerShellModules.ps1",
-      "${path.root}/../scripts/build/Install-WindowsFeatures.ps1",
-      "${path.root}/../scripts/build/Install-Chocolatey.ps1",
       "${path.root}/../scripts/build/Configure-BaseImage.ps1",
       "${path.root}/../scripts/build/Configure-ImageDataFile.ps1",
       "${path.root}/../scripts/build/Configure-SystemEnvironment.ps1",
@@ -81,18 +79,6 @@ build {
 
   provisioner "powershell" {
     inline = ["Set-Service -Name wlansvc -StartupType Manual", "if ($(Get-Service -Name wlansvc).Status -eq 'Running') { Stop-Service -Name wlansvc}"]
-  }
-
-  provisioner "powershell" {
-    environment_vars = ["IMAGE_FOLDER=${var.image_folder}", "TEMP_DIR=${var.temp_dir}"]
-    scripts          = [
-      "${path.root}/../scripts/build/Install-Docker.ps1",
-      "${path.root}/../scripts/build/Install-DockerWinCred.ps1",
-      "${path.root}/../scripts/build/Install-DockerCompose.ps1",
-      "${path.root}/../scripts/build/Install-PowershellCore.ps1",
-      "${path.root}/../scripts/build/Install-WebPlatformInstaller.ps1",
-      "${path.root}/../scripts/build/Install-TortoiseSvn.ps1"
-    ]
   }
 
   provisioner "windows-restart" {

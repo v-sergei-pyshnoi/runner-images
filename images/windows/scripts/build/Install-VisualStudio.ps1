@@ -62,4 +62,11 @@ if (Test-IsWin25-X64) {
     }
 }
 
+Write-host "Unity-debug"
+$installedComponents = Get-VisualStudioComponents | Select-Object -ExpandProperty Package
+
+Get-VisualStudioComponents | ForEach-Object {
+    Write-Host $_
+}
+
 Invoke-PesterTests -TestFile "VisualStudio"
