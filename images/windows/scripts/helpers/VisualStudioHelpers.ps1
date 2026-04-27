@@ -72,7 +72,7 @@ Function Install-VisualStudio {
 
         $installStartTime = Get-Date
         Write-Host "Starting Install ..."
-        $bootstrapperArgumentList = ('/c', $bootstrapperFilePath, '--in', $responseDataPath, $ExtraArgs, '--quiet', '--norestart', '--wait', '--nocache' )
+        $bootstrapperArgumentList = ('/c', $bootstrapperFilePath, '--in', $responseDataPath, $ExtraArgs, '--norestart', '--wait', '--nocache' )
         Write-Host "Bootstrapper arguments: $bootstrapperArgumentList"
         $process = Start-Process -FilePath cmd.exe -ArgumentList $bootstrapperArgumentList -Wait -PassThru
 
@@ -92,24 +92,24 @@ Function Install-VisualStudio {
             $collectExePath = Invoke-DownloadWithRetry -Url $collectExeUrl
 
             # Collect installation logs using the collect.exe tool and check if it is successful
-            & "$collectExePath"
-            if ($LastExitCode -ne 0) {
-                Write-Host "Failed to collect logs using collect.exe tool. Exit code : $LastExitCode"
-                exit $exitCode
-            }
+            #& "$collectExePath"
+            #if ($LastExitCode -ne 0) {
+            #    Write-Host "Failed to collect logs using collect.exe tool. Exit code : $LastExitCode"
+            #    exit $exitCode
+            #}
 
             # Expand the zip file
-            Expand-Archive -Path "$env:TEMP\vslogs.zip" -DestinationPath "$env:TEMP_DIR\vslogs"
+            #Expand-Archive -Path "$env:TEMP\vslogs.zip" -DestinationPath "$env:TEMP_DIR\vslogs"
 
             # Print logs
-            $vsLogsPath = "$env:TEMP_DIR\vslogs"
-            $vsLogs = Get-ChildItem -Path $vsLogsPath -Recurse | Where-Object { -not $_.PSIsContainer } | Select-Object -ExpandProperty FullName
-            foreach ($log in $vsLogs) {
-                Write-Host "============================"
-                Write-Host "== Log file : $log "
-                Write-Host "============================"
-                Get-Content -Path $log -ErrorAction Continue
-            }
+            #$vsLogsPath = "$env:TEMP_DIR\vslogs"
+            #$vsLogs = Get-ChildItem -Path $vsLogsPath -Recurse | Where-Object { -not $_.PSIsContainer } | Select-Object -ExpandProperty FullName
+            #foreach ($log in $vsLogs) {
+            #    Write-Host "============================"
+            #    Write-Host "== Log file : $log "
+            #    Write-Host "============================"
+            #    Get-Content -Path $log -ErrorAction Continue
+            #}
 
             exit $exitCode
         }
@@ -267,7 +267,7 @@ function Install-VSIXFromFile {
         try {
             $process = Start-Process `
                 -FilePath $installerPath `
-                -ArgumentList @('/quiet', "`"$FilePath`"") `
+                -ArgumentList @("`"$FilePath`"") `
                 -Wait -PassThru
         } catch {
             Write-Host "Failed to start VSIXInstaller.exe with error:"
