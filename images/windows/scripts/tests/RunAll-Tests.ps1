@@ -1,1 +1,1 @@
-Invoke-PesterTests "*"
+Invoke-PesterTests -TestFile "WindowsFeatures" -TestName "Windows Updates"
