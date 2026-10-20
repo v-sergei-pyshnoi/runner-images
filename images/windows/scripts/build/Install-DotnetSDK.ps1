@@ -1,6 +1,6 @@
 ################################################################################
 ##  File:  Install-DotnetSDK.ps1
-##  Desc:  Install all released versions of the dotnet sdk and populate package
+##  Desc:  Install configured versions of the dotnet sdk and populate package
 ##         cache. Should run after VS and Node
 ##  Supply chain security: checksum validation
 ################################################################################
@@ -22,6 +22,13 @@ function Get-SDKVersionsToInstall {
     $releasesData = (Invoke-DownloadWithRetry $releasesJsonUri) | Get-Item | Get-Content | ConvertFrom-Json
     # filtering out the preview/rc releases
     $releases = $releasesData.'releases' | Where-Object { !$_.'release-version'.Contains('-') }
+    # Until the first stable release, install the latest preview/RC SDK.
+    if (!$releases) {
+        if (!$releasesData.'latest-sdk') {
+            throw "No .NET SDK versions found for channel $DotnetVersion"
+        }
+        return $releasesData.'latest-sdk'
+    }
 
     $sdks = @()
     foreach ($release in $releases) {
