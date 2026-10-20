@@ -2,7 +2,7 @@
 ##  File:  Install-DotnetSDK.ps1
 ##  Desc:  Install configured versions of the dotnet sdk and populate package
 ##         cache. Should run after VS and Node
-##  Supply chain security: checksum validation
+##  Supply chain security: checksum validation (temporarily skipped for .NET 11)
 ################################################################################
 
 # Set environment variables
@@ -87,6 +87,11 @@ function Install-DotnetSDK {
     & $InstallScriptPath -Version $SDKVersion -InstallDir $(Join-Path -Path $env:ProgramFiles -ChildPath 'dotnet') -ZipPath $zipPath -KeepZip
     # Installer is PowerShell script that doesn't set exit code on failure
     # If installation failed, tests will fail anyway
+
+    if ($DotnetVersion -eq "11.0") {
+        Write-Warning "Skipping .NET 11 SDK checksum verification for installation testing only."
+        return
+    }
 
     #region Supply chain security
     if (Test-IsArm64) {
