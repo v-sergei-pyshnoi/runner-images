@@ -36,13 +36,17 @@ Function Install-VisualStudio {
         [String] $Architecture = "x64"
     )
 
-    if ($env:INSTALL_VS_2026) {
+    $channelId = "VisualStudio.${Version}.Release"
+    if ($Channel -eq "insiders") {
+        $bootstrapperUrl = "https://aka.ms/vs/${Version}/${Channel}/vs_${Edition}.exe"
+        # The public Insiders channel retains the Preview identifier in its manifest.
+        $channelId = "VisualStudio.${Version}.Preview"
+    } elseif ($env:INSTALL_VS_2026) {
         $bootstrapperUrl = "https://aka.ms/vs/postGRO-${Channel}/vs_${Edition}.exe"
     } else {
         $bootstrapperUrl = "https://aka.ms/vs/${Version}/postGRO-${Channel}/vs_${Edition}.exe"
     }
     $channelUri = "https://aka.ms/vs/${Version}/${Channel}/channel"
-    $channelId = "VisualStudio.${Version}.Release"
     $productId = "Microsoft.VisualStudio.Product.${Edition}"
     if (-not [string]::IsNullOrEmpty($InstallChannelUri)) {
         $installChannelUri = $InstallChannelUri

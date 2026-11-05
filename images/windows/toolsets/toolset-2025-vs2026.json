@@ -129,7 +129,7 @@
         "version" : "2026",
         "subversion" : "18",
         "edition" : "Enterprise",
-        "channel": "stable",
+        "channel": "insiders",
         "installChannelUri": "",
         "workloads": [
             "Component.Linux.CMake",
