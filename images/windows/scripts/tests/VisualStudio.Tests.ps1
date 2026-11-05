@@ -13,7 +13,9 @@ Describe "Visual Studio" {
 
         It "Insiders channel and version" -Skip:((Get-ToolsetContent).visualStudio.channel -ne "insiders") {
             $vsToolset = (Get-ToolsetContent).visualStudio
-            $instances = @(vswhere -prerelease -products "Microsoft.VisualStudio.Product.$($vsToolset.edition)" -format json | ConvertFrom-Json)
+            $vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            $vswherePath | Should -Exist
+            $instances = @(& $vswherePath -prerelease -products "Microsoft.VisualStudio.Product.$($vsToolset.edition)" -format json | ConvertFrom-Json)
             $LASTEXITCODE | Should -Be 0
             $instances.Count | Should -Be 1
             $instances[0].channelId | Should -Be "VisualStudio.$($vsToolset.subversion).Preview"
