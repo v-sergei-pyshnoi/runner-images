@@ -88,7 +88,8 @@ build {
       "mkdir -p /imagegeneration/adc-spike",
       "mv /imagegeneration/verify-spike.sh /imagegeneration/adc-spike/verify-spike.sh",
       "chmod +x /imagegeneration/helpers/invoke-tests.sh",
-      "ln -s /imagegeneration/helpers/invoke-tests.sh /usr/local/bin/invoke_tests"
+      "ln -s /imagegeneration/helpers/invoke-tests.sh /usr/local/bin/invoke_tests",
+      "apt-get update --error-on=any"
     ]
   }
 
