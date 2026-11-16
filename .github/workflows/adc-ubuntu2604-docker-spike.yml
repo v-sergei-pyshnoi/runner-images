@@ -66,11 +66,15 @@ jobs:
 
       - name: Build systemd bootstrap
         run: |
-          docker build --pull --platform linux/amd64 \
+          docker pull --platform linux/amd64 ubuntu:26.04 \
+            2>&1 | tee "$OUTPUT_DIRECTORY/base-image-pull.log"
+          docker image inspect ubuntu:26.04 > "$OUTPUT_DIRECTORY/base-image.json"
+          base_image=$(docker image inspect --format '{{index .RepoDigests 0}}' ubuntu:26.04)
+          docker build --platform linux/amd64 \
+            --build-arg "BASE_IMAGE=$base_image" \
             --iidfile "$OUTPUT_DIRECTORY/bootstrap-image-id.txt" \
             --tag "$BOOTSTRAP_IMAGE" "$SPIKE_DIRECTORY" \
             2>&1 | tee "$OUTPUT_DIRECTORY/bootstrap.log"
-          docker image inspect ubuntu:26.04 > "$OUTPUT_DIRECTORY/base-image.json"
 
       - name: Initialize and validate Packer
         env:
