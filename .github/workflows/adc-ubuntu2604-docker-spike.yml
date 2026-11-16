@@ -1,0 +1,177 @@
+name: ADC Ubuntu 26.04 - Packer Docker spike
+run-name: ADC Ubuntu 26.04 x64 - privileged=${{ inputs.privileged }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      privileged:
+        description: Allow privileged containers on the disposable GitHub-hosted runner
+        type: boolean
+        default: false
+      save_image:
+        description: Upload the committed image archive (potentially large)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  docker-spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      SPIKE_DIRECTORY: images/ubuntu/adc-spike
+      BOOTSTRAP_IMAGE: adc-ubuntu2604-bootstrap:${{ github.run_id }}-${{ github.run_attempt }}
+      SPIKE_IMAGE: adc-ubuntu2604-spike:${{ github.run_id }}-${{ github.run_attempt }}
+      BUILD_CONTAINER: adc-build-${{ github.run_id }}-${{ github.run_attempt }}
+      TEST_CONTAINER: adc-test-${{ github.run_id }}-${{ github.run_attempt }}
+      PRIVILEGED: ${{ inputs.privileged }}
+
+    steps:
+      - name: Prepare artifact directory
+        id: paths
+        run: |
+          mkdir -p "$RUNNER_TEMP/adc-docker-spike"
+          echo "OUTPUT_DIRECTORY=$RUNNER_TEMP/adc-docker-spike" >> "$GITHUB_ENV"
+          echo "directory=$RUNNER_TEMP/adc-docker-spike" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@v3
+        with:
+          version: 1.15.4
+
+      - name: Record build environment
+        run: |
+          mkdir -p "$OUTPUT_DIRECTORY"
+          test "$(uname -m)" = x86_64
+          docker info > "$OUTPUT_DIRECTORY/host-docker-info.txt"
+          df -h > "$OUTPUT_DIRECTORY/host-disk.txt"
+          jq -n \
+            --arg commit "$GITHUB_SHA" \
+            --arg architecture x64 \
+            --arg privileged "$PRIVILEGED" \
+            --arg run "$GITHUB_RUN_ID" \
+            '{commit: $commit, architecture: $architecture, privileged: $privileged, run: $run}' \
+            > "$OUTPUT_DIRECTORY/run.json"
+          cp images/ubuntu/toolsets/toolset-2604.json "$OUTPUT_DIRECTORY/toolset.json"
+
+      - name: Build systemd bootstrap
+        run: |
+          docker build --pull --platform linux/amd64 \
+            --iidfile "$OUTPUT_DIRECTORY/bootstrap-image-id.txt" \
+            --tag "$BOOTSTRAP_IMAGE" "$SPIKE_DIRECTORY" \
+            2>&1 | tee "$OUTPUT_DIRECTORY/bootstrap.log"
+          docker image inspect ubuntu:26.04 > "$OUTPUT_DIRECTORY/base-image.json"
+
+      - name: Initialize and validate Packer
+        env:
+          PKR_VAR_base_image: ${{ env.BOOTSTRAP_IMAGE }}
+          PKR_VAR_container_name: ${{ env.BUILD_CONTAINER }}
+          PKR_VAR_image_tag: ${{ github.run_id }}-${{ github.run_attempt }}
+          PKR_VAR_output_directory: ${{ steps.paths.outputs.directory }}
+          PKR_VAR_privileged: ${{ inputs.privileged }}
+        run: |
+          packer init "$SPIKE_DIRECTORY"
+          packer fmt -check "$SPIKE_DIRECTORY"
+          packer validate "$SPIKE_DIRECTORY"
+
+      - name: Provision and commit with Packer Docker builder
+        id: build
+        env:
+          PKR_VAR_base_image: ${{ env.BOOTSTRAP_IMAGE }}
+          PKR_VAR_container_name: ${{ env.BUILD_CONTAINER }}
+          PKR_VAR_image_tag: ${{ github.run_id }}-${{ github.run_attempt }}
+          PKR_VAR_output_directory: ${{ steps.paths.outputs.directory }}
+          PKR_VAR_privileged: ${{ inputs.privileged }}
+          PACKER_LOG: '1'
+          PACKER_LOG_PATH: ${{ steps.paths.outputs.directory }}/packer-debug.log
+        run: |
+          # Preserve a failed container for the diagnostic and cleanup steps.
+          timeout --signal=TERM --kill-after=30s 45m \
+            packer build -on-error=abort "$SPIKE_DIRECTORY" \
+            2>&1 | tee "$OUTPUT_DIRECTORY/packer-build.log"
+          docker image inspect "$SPIKE_IMAGE" > "$OUTPUT_DIRECTORY/committed-image.json"
+
+      - name: Verify a fresh container from the committed image
+        id: verify
+        run: |
+          options=(--cgroupns=private --tmpfs /run --tmpfs /run/lock)
+          if [[ "$PRIVILEGED" == true ]]; then
+              options+=(--privileged)
+          fi
+          docker run --detach --name "$TEST_CONTAINER" \
+            "${options[@]}" --entrypoint /sbin/init "$SPIKE_IMAGE"
+          timeout --signal=TERM --kill-after=10s 10m \
+            docker exec "$TEST_CONTAINER" \
+              bash /imagegeneration/adc-spike/verify-spike.sh \
+            2>&1 | tee "$OUTPUT_DIRECTORY/fresh-container-tests.log"
+
+      - name: Save committed image
+        if: success() && inputs.save_image
+        run: |
+          docker image save "$SPIKE_IMAGE" | gzip > "$OUTPUT_DIRECTORY/image.tar.gz"
+
+      - name: Collect container diagnostics
+        if: always()
+        run: |
+          mkdir -p "$OUTPUT_DIRECTORY"
+          for container in "$BUILD_CONTAINER" "$TEST_CONTAINER"; do
+              if docker container inspect "$container" > "$OUTPUT_DIRECTORY/$container-inspect.json" 2>&1; then
+                  docker logs "$container" > "$OUTPUT_DIRECTORY/$container-console.log" 2>&1
+                  if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == true ]]; then
+                      if ! docker exec "$container" journalctl --no-pager --lines=200 \
+                          > "$OUTPUT_DIRECTORY/$container-journal.log" 2>&1; then
+                          echo "::warning::Could not read journal from $container; see diagnostic log."
+                      fi
+                  fi
+              else
+                  echo "Container $container is absent; see Packer log for provisioning details."
+              fi
+          done
+
+      - name: Write summary
+        if: always()
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          {
+              echo "## Ubuntu 26.04 x64 - Packer Docker spike"
+              echo ""
+              echo "| Check | Result |"
+              echo "| --- | --- |"
+              echo "| Privileged containers | $PRIVILEGED |"
+              echo "| Packer provisioning and commit | $BUILD_OUTCOME |"
+              echo "| Fresh-container tests | $VERIFY_OUTCOME |"
+              echo ""
+              echo "This is a limited container spike, not a full runner image."
+              echo "ADC microVM, reboot, OCI import, ACR distribution and image layers are not tested."
+              echo "Download the diagnostic artifact even if the job failed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload spike artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adc-ubuntu2604-docker-spike-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.paths.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove only this run's containers
+        if: always()
+        run: |
+          for container in "$BUILD_CONTAINER" "$TEST_CONTAINER"; do
+              if docker container inspect "$container" > /dev/null 2>&1; then
+                  docker container rm --force "$container"
+              fi
+          done
