@@ -15,6 +15,7 @@ RUN apt-get update \
         systemd \
         systemd-sysv \
     && printf '%s\n' 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assumeyes \
+    && install -d -m 0700 /opt/packer-provisioning \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

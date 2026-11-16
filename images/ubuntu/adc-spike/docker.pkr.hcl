@@ -55,6 +55,7 @@ build {
   sources = ["source.docker.ubuntu2604"]
 
   provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
     inline = [
       "mkdir -p /imagegeneration/installers",
       "test \"$(cat /proc/1/comm)\" = systemd || { echo 'systemd failed to start as PID 1; inspect cgroups and privileges' >&2; exit 1; }"
@@ -82,6 +83,7 @@ build {
   }
 
   provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
     inline = [
       "mkdir -p /imagegeneration/adc-spike",
       "mv /imagegeneration/verify-spike.sh /imagegeneration/adc-spike/verify-spike.sh",
@@ -91,6 +93,7 @@ build {
   }
 
   provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
       "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers",
@@ -103,6 +106,7 @@ build {
   }
 
   provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
       "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers"
@@ -112,6 +116,7 @@ build {
   }
 
   provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
       "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers",
