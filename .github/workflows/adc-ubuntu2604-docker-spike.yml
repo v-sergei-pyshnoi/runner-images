@@ -132,6 +132,12 @@ jobs:
               if docker container inspect "$container" > "$OUTPUT_DIRECTORY/$container-inspect.json" 2>&1; then
                   docker logs "$container" > "$OUTPUT_DIRECTORY/$container-console.log" 2>&1
                   if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == true ]]; then
+                      if ! timeout --signal=TERM --kill-after=10s 2m \
+                          docker exec --interactive "$container" bash -s \
+                          < "$SPIKE_DIRECTORY/diagnose-docker.sh" \
+                          > "$OUTPUT_DIRECTORY/$container-docker-storage.log" 2>&1; then
+                          echo "::warning::Docker storage diagnostics were incomplete for $container; see diagnostic log."
+                      fi
                       if ! docker exec "$container" journalctl --no-pager --lines=200 \
                           > "$OUTPUT_DIRECTORY/$container-journal.log" 2>&1; then
                           echo "::warning::Could not read journal from $container; see diagnostic log."
