@@ -154,6 +154,11 @@ build {
     inline        = ["bash /imagegeneration/adc-spike/verify-spike.sh build"]
   }
 
+  provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
+    script        = "${path.root}/prepare-image.sh"
+  }
+
   post-processor "docker-tag" {
     repository = "adc-ubuntu2604-spike"
     tags       = [var.image_tag]

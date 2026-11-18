@@ -150,6 +150,8 @@ jobs:
         if: success() && inputs.save_image
         run: |
           docker image save "$SPIKE_IMAGE" | gzip > "$OUTPUT_DIRECTORY/image.tar.gz"
+          python3 "$SPIKE_DIRECTORY/check-image-archive.py" "$OUTPUT_DIRECTORY/image.tar.gz" \
+            | tee "$OUTPUT_DIRECTORY/image-device-check.log"
           (cd "$OUTPUT_DIRECTORY" && sha256sum image.tar.gz > image.tar.gz.sha256)
 
       - name: Collect container diagnostics
@@ -229,6 +231,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       actions: read
+      contents: read
     defaults:
       run:
         shell: bash
@@ -238,6 +241,11 @@ jobs:
       REGISTRY: runnerubuntu26test.azurecr.io
       IMAGE_REPOSITORY: ubuntu2604-spike
     steps:
+      - name: Checkout archive validator
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
       - name: Validate source build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -271,6 +279,7 @@ jobs:
         working-directory: ${{ runner.temp }}/adc-saved-image
         run: |
           sha256sum --check image.tar.gz.sha256
+          python3 "$GITHUB_WORKSPACE/images/ubuntu/adc-spike/check-image-archive.py" image.tar.gz
           gzip --decompress --stdout image.tar.gz | docker image load
           platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$SOURCE_IMAGE")
           if [[ "$platform" != linux/amd64 ]]; then
