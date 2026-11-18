@@ -19,6 +19,10 @@ on:
           - default
           - overlay2
         default: default
+      skip_docker_image_preload:
+        description: Skip Dependabot and AW preloads only (nested Docker build/run still executes)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,6 +42,7 @@ jobs:
       TEST_CONTAINER: adc-test-${{ github.run_id }}-${{ github.run_attempt }}
       PRIVILEGED: ${{ inputs.privileged }}
       PKR_VAR_docker_storage: ${{ inputs.docker_storage }}
+      PKR_VAR_skip_docker_image_preload: ${{ inputs.skip_docker_image_preload }}
 
     steps:
       - name: Prepare artifact directory
@@ -68,8 +73,9 @@ jobs:
             --arg architecture x64 \
             --arg privileged "$PRIVILEGED" \
             --arg docker_storage "$PKR_VAR_docker_storage" \
+            --argjson skip_docker_image_preload "$PKR_VAR_skip_docker_image_preload" \
             --arg run "$GITHUB_RUN_ID" \
-            '{commit: $commit, architecture: $architecture, privileged: $privileged, docker_storage: $docker_storage, run: $run}' \
+            '{commit: $commit, architecture: $architecture, privileged: $privileged, docker_storage: $docker_storage, skip_docker_image_preload: $skip_docker_image_preload, run: $run}' \
             > "$OUTPUT_DIRECTORY/run.json"
           cp images/ubuntu/toolsets/toolset-2604.json "$OUTPUT_DIRECTORY/toolset.json"
 
@@ -170,11 +176,15 @@ jobs:
               echo "| --- | --- |"
               echo "| Privileged containers | $PRIVILEGED |"
               echo "| Requested nested Docker storage | $PKR_VAR_docker_storage |"
+              echo "| Dependabot and AW image preloads skipped | $PKR_VAR_skip_docker_image_preload |"
               echo "| Packer provisioning and commit | $BUILD_OUTCOME |"
               echo "| Fresh-container tests | $VERIFY_OUTCOME |"
               echo ""
               echo "This is a limited container spike, not a full runner image."
               echo "ADC microVM, reboot, OCI import, ACR distribution and image layers are not tested."
+              if [[ "$PKR_VAR_skip_docker_image_preload" == true ]]; then
+                  echo "Dependabot and AW preloads were explicitly disabled; a passing job does not validate those image pulls."
+              fi
               echo "Download the diagnostic artifact even if the job failed."
           } >> "$GITHUB_STEP_SUMMARY"
 

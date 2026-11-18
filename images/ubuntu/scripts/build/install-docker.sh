@@ -9,6 +9,14 @@
 source $HELPER_SCRIPTS/install.sh
 source $HELPER_SCRIPTS/os.sh
 
+case "${SKIP_DOCKER_IMAGE_PRELOAD:-false}" in
+    true|false) ;;
+    *)
+        echo "SKIP_DOCKER_IMAGE_PRELOAD must be true or false." >&2
+        exit 1
+        ;;
+esac
+
 if is_x64; then
   docker_arch="amd64"
 elif is_arm64; then
@@ -89,7 +97,9 @@ systemctl is-enabled --quiet docker.service || systemctl enable docker.service
 sleep 10
 docker info
 
-if ! is_ubuntu22; then
+if [[ "${SKIP_DOCKER_IMAGE_PRELOAD:-false}" == true ]]; then
+    echo "Skipping Docker image preloads by explicit request; image pull compatibility is not validated."
+elif ! is_ubuntu22; then
     # Pull Dependabot docker image
     # The image is published for amd64 only, so pin the platform to keep ARM64 pulls working: https://github.com/dependabot/dependabot-core/issues/15874
     docker pull --platform linux/amd64 ghcr.io/dependabot/dependabot-updater-core:latest

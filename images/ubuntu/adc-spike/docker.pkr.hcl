@@ -38,6 +38,12 @@ variable "docker_storage" {
   }
 }
 
+variable "skip_docker_image_preload" {
+  type        = bool
+  default     = false
+  description = "Skip only Dependabot and AW image preloads; Docker installation, Pester and nested build/run still execute."
+}
+
 source "docker" "ubuntu2604" {
   image      = var.base_image
   pull       = false
@@ -133,7 +139,8 @@ build {
       "HELPER_SCRIPTS=/imagegeneration/helpers",
       "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers",
       "DEBIAN_FRONTEND=noninteractive",
-      "ADC_SPIKE_DOCKER_STORAGE=${var.docker_storage}"
+      "ADC_SPIKE_DOCKER_STORAGE=${var.docker_storage}",
+      "SKIP_DOCKER_IMAGE_PRELOAD=${var.skip_docker_image_preload}"
     ]
     scripts = [
       "${path.root}/configure-docker-storage.sh",
