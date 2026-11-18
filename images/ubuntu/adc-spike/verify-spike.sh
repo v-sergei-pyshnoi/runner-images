@@ -36,6 +36,24 @@ for attempt in {1..60}; do
 done
 
 docker info
+case "${ADC_SPIKE_DOCKER_STORAGE:?Set the Docker storage experiment mode.}" in
+    default)
+        echo "Checking Docker with its default storage configuration."
+        ;;
+    overlay2)
+        if [[ "$(docker info --format '{{.Driver}}')" != overlay2 ]]; then
+            echo "Expected the explicitly requested overlay2 storage driver." >&2
+            exit 1
+        fi
+        jq --exit-status \
+            '.["storage-driver"] == "overlay2" and .features["containerd-snapshotter"] == false' \
+            /etc/docker/daemon.json
+        ;;
+    *)
+        echo "Unsupported Docker storage experiment: $ADC_SPIKE_DOCKER_STORAGE" >&2
+        exit 1
+        ;;
+esac
 pwsh -NoProfile -Command 'Get-Host'
 invoke_tests "Tools" "Docker"
 

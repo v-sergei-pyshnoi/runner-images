@@ -28,6 +28,16 @@ variable "privileged" {
   default = false
 }
 
+variable "docker_storage" {
+  type        = string
+  default     = "default"
+  description = "Leave Docker defaults unchanged or explicitly test classic overlay2 without the containerd image store."
+  validation {
+    condition     = contains(["default", "overlay2"], var.docker_storage)
+    error_message = "The Docker storage mode must be default or overlay2."
+  }
+}
+
 source "docker" "ubuntu2604" {
   image      = var.base_image
   pull       = false
@@ -47,7 +57,8 @@ source "docker" "ubuntu2604" {
     "CMD [\"/sbin/init\"]",
     "ENV HELPER_SCRIPTS /imagegeneration/helpers",
     "ENV INSTALLER_SCRIPT_FOLDER /imagegeneration/installers",
-    "ENV DEBIAN_FRONTEND noninteractive"
+    "ENV DEBIAN_FRONTEND noninteractive",
+    "ENV ADC_SPIKE_DOCKER_STORAGE ${var.docker_storage}"
   ]
 }
 
@@ -121,9 +132,11 @@ build {
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
       "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers",
-      "DEBIAN_FRONTEND=noninteractive"
+      "DEBIAN_FRONTEND=noninteractive",
+      "ADC_SPIKE_DOCKER_STORAGE=${var.docker_storage}"
     ]
     scripts = [
+      "${path.root}/configure-docker-storage.sh",
       "${path.root}/../scripts/build/install-docker.sh",
       "${path.root}/verify-spike.sh"
     ]

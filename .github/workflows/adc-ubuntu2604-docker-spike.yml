@@ -1,5 +1,5 @@
 name: ADC Ubuntu 26.04 - Packer Docker spike
-run-name: ADC Ubuntu 26.04 x64 - privileged=${{ inputs.privileged }}
+run-name: ADC Ubuntu 26.04 x64 - privileged=${{ inputs.privileged }} - storage=${{ inputs.docker_storage }}
 
 on:
   workflow_dispatch:
@@ -12,6 +12,13 @@ on:
         description: Upload the committed image archive (potentially large)
         type: boolean
         default: false
+      docker_storage:
+        description: Nested Docker storage experiment (default leaves daemon configuration unchanged)
+        type: choice
+        options:
+          - default
+          - overlay2
+        default: default
 
 permissions:
   contents: read
@@ -30,6 +37,7 @@ jobs:
       BUILD_CONTAINER: adc-build-${{ github.run_id }}-${{ github.run_attempt }}
       TEST_CONTAINER: adc-test-${{ github.run_id }}-${{ github.run_attempt }}
       PRIVILEGED: ${{ inputs.privileged }}
+      PKR_VAR_docker_storage: ${{ inputs.docker_storage }}
 
     steps:
       - name: Prepare artifact directory
@@ -59,8 +67,9 @@ jobs:
             --arg commit "$GITHUB_SHA" \
             --arg architecture x64 \
             --arg privileged "$PRIVILEGED" \
+            --arg docker_storage "$PKR_VAR_docker_storage" \
             --arg run "$GITHUB_RUN_ID" \
-            '{commit: $commit, architecture: $architecture, privileged: $privileged, run: $run}' \
+            '{commit: $commit, architecture: $architecture, privileged: $privileged, docker_storage: $docker_storage, run: $run}' \
             > "$OUTPUT_DIRECTORY/run.json"
           cp images/ubuntu/toolsets/toolset-2604.json "$OUTPUT_DIRECTORY/toolset.json"
 
@@ -160,6 +169,7 @@ jobs:
               echo "| Check | Result |"
               echo "| --- | --- |"
               echo "| Privileged containers | $PRIVILEGED |"
+              echo "| Requested nested Docker storage | $PKR_VAR_docker_storage |"
               echo "| Packer provisioning and commit | $BUILD_OUTCOME |"
               echo "| Fresh-container tests | $VERIFY_OUTCOME |"
               echo ""
