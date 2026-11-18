@@ -8,12 +8,14 @@ RUN apt-get update \
         dbus \
         gnupg \
         jq \
+        libdigest-sha-perl \
         libicu-dev \
         libssl-dev \
         lsb-release \
         sudo \
         systemd \
         systemd-sysv \
+    && shasum --version \
     && printf '%s\n' 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assumeyes \
     && install -d -m 0700 /opt/packer-provisioning \
     && apt-get clean \
