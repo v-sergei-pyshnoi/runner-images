@@ -1,9 +1,24 @@
 name: ADC Ubuntu 26.04 - Packer Docker spike
-run-name: ADC Ubuntu 26.04 x64 - privileged=${{ inputs.privileged }} - storage=${{ inputs.docker_storage }}
+run-name: ADC Ubuntu 26.04 x64 - ${{ inputs.operation }} - storage=${{ inputs.docker_storage }}
 
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Build a new image or publish a saved build to the test ACR
+        type: choice
+        options:
+          - build
+          - publish_saved
+        default: build
+      source_run:
+        description: Successful build run ID to publish (publish_saved only)
+        type: string
+        default: '44317616785'
+      source_attempt:
+        description: Build run attempt to publish (publish_saved only)
+        type: string
+        default: '1'
       privileged:
         description: Allow privileged containers on the disposable GitHub-hosted runner
         type: boolean
@@ -29,6 +44,7 @@ permissions:
 
 jobs:
   docker-spike:
+    if: inputs.operation != 'publish_saved'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     defaults:
@@ -205,4 +221,109 @@ jobs:
         run: |
           if docker container inspect "$BUILD_CONTAINER" > /dev/null 2>&1; then
               docker container rm --force "$BUILD_CONTAINER"
+          fi
+
+  publish-saved:
+    if: inputs.operation == 'publish_saved'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_RUN: ${{ inputs.source_run }}
+      SOURCE_ATTEMPT: ${{ inputs.source_attempt }}
+      REGISTRY: runnerubuntu26test.azurecr.io
+      IMAGE_REPOSITORY: ubuntu2604-spike
+    steps:
+      - name: Validate source build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "$SOURCE_RUN" =~ ^[1-9][0-9]*$ || ! "$SOURCE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Source run and attempt must be positive integers."
+              exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/attempts/$SOURCE_ATTEMPT" \
+            > "$RUNNER_TEMP/adc-source-run.json"
+          jq --exit-status \
+            '.conclusion == "success" and .event == "workflow_dispatch"
+             and .head_branch == "ubuntu-docker"
+             and .path == ".github/workflows/adc-ubuntu2604-docker-spike.yml"' \
+            "$RUNNER_TEMP/adc-source-run.json"
+          {
+              echo "SOURCE_IMAGE=adc-ubuntu2604-spike:$SOURCE_RUN-$SOURCE_ATTEMPT"
+              echo "TARGET_IMAGE=$REGISTRY/$IMAGE_REPOSITORY:$SOURCE_RUN-$SOURCE_ATTEMPT"
+              echo "DOCKER_CONFIG=$RUNNER_TEMP/adc-acr-auth"
+          } >> "$GITHUB_ENV"
+
+      - name: Download saved build
+        uses: actions/download-artifact@v4
+        with:
+          name: adc-ubuntu2604-docker-spike-${{ inputs.source_run }}-${{ inputs.source_attempt }}
+          path: ${{ runner.temp }}/adc-saved-image
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run }}
+
+      - name: Verify and load image
+        working-directory: ${{ runner.temp }}/adc-saved-image
+        run: |
+          sha256sum --check image.tar.gz.sha256
+          gzip --decompress --stdout image.tar.gz | docker image load
+          platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$SOURCE_IMAGE")
+          if [[ "$platform" != linux/amd64 ]]; then
+              echo "::error::Expected linux/amd64; found $platform."
+              exit 1
+          fi
+          docker image tag "$SOURCE_IMAGE" "$TARGET_IMAGE"
+
+      - name: Log in to test ACR
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          if [[ -z "$ACR_USERNAME" || -z "$ACR_PASSWORD" ]]; then
+              echo "::error::Configure the ACR_USERNAME and ACR_PASSWORD repository secrets."
+              exit 1
+          fi
+          mkdir -p "$DOCKER_CONFIG"
+          chmod 700 "$DOCKER_CONFIG"
+          printf '%s' "$ACR_PASSWORD" | docker login "$REGISTRY" \
+            --username "$ACR_USERNAME" --password-stdin
+
+      - name: Push image and verify registry digest
+        run: |
+          docker image push "$TARGET_IMAGE"
+          docker buildx imagetools inspect "$TARGET_IMAGE" \
+            --format '{{json .Manifest}}' > "$RUNNER_TEMP/adc-registry-manifest.json"
+          digest=$(jq --exit-status --raw-output '.digest' "$RUNNER_TEMP/adc-registry-manifest.json")
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Registry returned an invalid image digest."
+              exit 1
+          fi
+          {
+              echo "## Published Ubuntu 26.04 spike"
+              echo ""
+              echo "Tag: \`$TARGET_IMAGE\`"
+              echo ""
+              echo "Digest reference: \`$REGISTRY/$IMAGE_REPOSITORY@$digest\`"
+              echo ""
+              echo "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/attempts/$SOURCE_ATTEMPT"
+              echo ""
+              echo "ADC microVM runtime validation: **NOT RUN**."
+              echo "This is a minimal spike, not the full runner toolset."
+              echo "After creating a fresh ADC microVM from this image, run:"
+              echo '```bash'
+              echo 'sudo bash /imagegeneration/adc-spike/verify-spike.sh runtime'
+              echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove registry credentials
+        if: always()
+        run: |
+          if [[ -f "$DOCKER_CONFIG/config.json" ]]; then
+              docker logout "$REGISTRY"
+              rm -f "$DOCKER_CONFIG/config.json"
           fi
