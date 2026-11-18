@@ -1,15 +1,64 @@
 #!/bin/bash -e
 ################################################################################
 ##  File:  verify-spike.sh
-##  Desc:  Validate the Docker spike during provisioning and after image commit
+##  Desc:  Check installed files at build time or validate runtime in an ADC microVM
 ################################################################################
 
 set -euo pipefail
+
+case "${1:-}" in
+    build|runtime) mode=$1 ;;
+    *)
+        echo "Usage: bash verify-spike.sh build|runtime" >&2
+        exit 1
+        ;;
+esac
+
+if [[ $# != 1 ]]; then
+    echo "Expected exactly one validation mode: build or runtime." >&2
+    exit 1
+fi
+
+export HELPER_SCRIPTS=/imagegeneration/helpers
+export INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers
+storage_mode=$(cat /imagegeneration/adc-spike/docker-storage)
+case "$storage_mode" in
+    default|overlay2) ;;
+    *)
+        echo "Invalid Docker storage mode recorded in the image: $storage_mode" >&2
+        exit 1
+        ;;
+esac
 
 # shellcheck source=/dev/null
 source /etc/os-release
 if [[ "$ID" != ubuntu || "$VERSION_ID" != 26.04 || "$(uname -m)" != x86_64 ]]; then
     echo "Expected Ubuntu 26.04 x64." >&2
+    exit 1
+fi
+
+docker --version
+docker buildx version
+docker compose version
+docker-credential-ecr-login -v
+shasum --version
+pwsh -NoProfile -Command 'Import-Module Pester -ErrorAction Stop; Get-Host'
+test -r /imagegeneration/tests/Tools.Tests.ps1
+test -x /usr/local/bin/invoke_tests
+
+if [[ "$storage_mode" == overlay2 ]]; then
+    jq --exit-status \
+        '.["storage-driver"] == "overlay2" and .features["containerd-snapshotter"] == false' \
+        /etc/docker/daemon.json
+fi
+
+if [[ "$mode" == build ]]; then
+    echo "Installed-file checks passed. Docker build/run and ADC runtime validation have NOT run."
+    exit 0
+fi
+
+if systemd-detect-virt --container --quiet; then
+    echo "Run runtime validation inside a fresh ADC microVM, not a Docker container." >&2
     exit 1
 fi
 
@@ -36,7 +85,7 @@ for attempt in {1..60}; do
 done
 
 docker info
-case "${ADC_SPIKE_DOCKER_STORAGE:?Set the Docker storage experiment mode.}" in
+case "$storage_mode" in
     default)
         echo "Checking Docker with its default storage configuration."
         ;;
@@ -45,16 +94,8 @@ case "${ADC_SPIKE_DOCKER_STORAGE:?Set the Docker storage experiment mode.}" in
             echo "Expected the explicitly requested overlay2 storage driver." >&2
             exit 1
         fi
-        jq --exit-status \
-            '.["storage-driver"] == "overlay2" and .features["containerd-snapshotter"] == false' \
-            /etc/docker/daemon.json
-        ;;
-    *)
-        echo "Unsupported Docker storage experiment: $ADC_SPIKE_DOCKER_STORAGE" >&2
-        exit 1
         ;;
 esac
-pwsh -NoProfile -Command 'Get-Host'
 invoke_tests "Tools" "Docker"
 
 docker build --progress=plain --tag adc-spike-nested - <<'EOF'
@@ -71,4 +112,4 @@ fi
 df -h / /tmp
 findmnt --target /
 du -sh /var/lib/docker
-echo "Limited Docker spike passed. Full runner provisioning and ADC runtime are not tested."
+echo "Docker runtime checks passed on this machine. Full runner toolset and ADC distribution are not tested."

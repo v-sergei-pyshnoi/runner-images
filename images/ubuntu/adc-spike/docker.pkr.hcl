@@ -41,7 +41,7 @@ variable "docker_storage" {
 variable "skip_docker_image_preload" {
   type        = bool
   default     = false
-  description = "Skip only Dependabot and AW image preloads; Docker installation, Pester and nested build/run still execute."
+  description = "Skip only Dependabot and AW image preloads; installer smoke tests remain and functional build/run is deferred to an ADC microVM."
 }
 
 source "docker" "ubuntu2604" {
@@ -104,6 +104,7 @@ build {
     inline = [
       "mkdir -p /imagegeneration/adc-spike",
       "mv /imagegeneration/verify-spike.sh /imagegeneration/adc-spike/verify-spike.sh",
+      "printf '%s\\n' '${var.docker_storage}' > /imagegeneration/adc-spike/docker-storage",
       "chmod +x /imagegeneration/helpers/invoke-tests.sh",
       "ln -s /imagegeneration/helpers/invoke-tests.sh /usr/local/bin/invoke_tests",
       "apt-get update --error-on=any"
@@ -144,9 +145,13 @@ build {
     ]
     scripts = [
       "${path.root}/configure-docker-storage.sh",
-      "${path.root}/../scripts/build/install-docker.sh",
-      "${path.root}/verify-spike.sh"
+      "${path.root}/../scripts/build/install-docker.sh"
     ]
+  }
+
+  provisioner "shell" {
+    remote_folder = "/opt/packer-provisioning"
+    inline        = ["bash /imagegeneration/adc-spike/verify-spike.sh build"]
   }
 
   post-processor "docker-tag" {

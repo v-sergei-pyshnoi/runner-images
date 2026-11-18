@@ -9,9 +9,9 @@ on:
         type: boolean
         default: false
       save_image:
-        description: Upload the committed image archive (potentially large)
+        description: Upload a docker save archive for manual ADC import (potentially large; not OCI layout)
         type: boolean
-        default: false
+        default: true
       docker_storage:
         description: Nested Docker storage experiment (default leaves daemon configuration unchanged)
         type: choice
@@ -20,7 +20,7 @@ on:
           - overlay2
         default: default
       skip_docker_image_preload:
-        description: Skip Dependabot and AW preloads only (nested Docker build/run still executes)
+        description: Skip Dependabot and AW preloads only (functional Docker build/run runs manually in ADC)
         type: boolean
         default: false
 
@@ -39,7 +39,6 @@ jobs:
       BOOTSTRAP_IMAGE: adc-ubuntu2604-bootstrap:${{ github.run_id }}-${{ github.run_attempt }}
       SPIKE_IMAGE: adc-ubuntu2604-spike:${{ github.run_id }}-${{ github.run_attempt }}
       BUILD_CONTAINER: adc-build-${{ github.run_id }}-${{ github.run_attempt }}
-      TEST_CONTAINER: adc-test-${{ github.run_id }}-${{ github.run_attempt }}
       PRIVILEGED: ${{ inputs.privileged }}
       PKR_VAR_docker_storage: ${{ inputs.docker_storage }}
       PKR_VAR_skip_docker_image_preload: ${{ inputs.skip_docker_image_preload }}
@@ -78,6 +77,9 @@ jobs:
             '{commit: $commit, architecture: $architecture, privileged: $privileged, docker_storage: $docker_storage, skip_docker_image_preload: $skip_docker_image_preload, run: $run}' \
             > "$OUTPUT_DIRECTORY/run.json"
           cp images/ubuntu/toolsets/toolset-2604.json "$OUTPUT_DIRECTORY/toolset.json"
+          cp "$SPIKE_DIRECTORY/verify-spike.sh" "$OUTPUT_DIRECTORY/verify-spike.sh"
+          jq -n '{runtime_validation: "not_run", target: "fresh ADC microVM", command: "sudo bash /imagegeneration/adc-spike/verify-spike.sh runtime"}' \
+            > "$OUTPUT_DIRECTORY/runtime-validation.json"
 
       - name: Build systemd bootstrap
         run: |
@@ -120,48 +122,42 @@ jobs:
             2>&1 | tee "$OUTPUT_DIRECTORY/packer-build.log"
           docker image inspect "$SPIKE_IMAGE" > "$OUTPUT_DIRECTORY/committed-image.json"
 
-      - name: Verify a fresh container from the committed image
+      - name: Check installed files in the committed image (no runtime validation)
         id: verify
         run: |
-          options=(--cgroupns=private --tmpfs /run --tmpfs /run/lock)
-          if [[ "$PRIVILEGED" == true ]]; then
-              options+=(--privileged)
-          fi
-          docker run --detach --name "$TEST_CONTAINER" \
-            "${options[@]}" --entrypoint /sbin/init "$SPIKE_IMAGE"
           timeout --signal=TERM --kill-after=10s 10m \
-            docker exec "$TEST_CONTAINER" \
-              bash /imagegeneration/adc-spike/verify-spike.sh \
-            2>&1 | tee "$OUTPUT_DIRECTORY/fresh-container-tests.log"
+            docker run --rm --entrypoint /bin/bash "$SPIKE_IMAGE" \
+              /imagegeneration/adc-spike/verify-spike.sh build \
+            2>&1 | tee "$OUTPUT_DIRECTORY/committed-image-checks.log"
 
       - name: Save committed image
         if: success() && inputs.save_image
         run: |
           docker image save "$SPIKE_IMAGE" | gzip > "$OUTPUT_DIRECTORY/image.tar.gz"
+          (cd "$OUTPUT_DIRECTORY" && sha256sum image.tar.gz > image.tar.gz.sha256)
 
       - name: Collect container diagnostics
         if: always()
         run: |
           mkdir -p "$OUTPUT_DIRECTORY"
-          for container in "$BUILD_CONTAINER" "$TEST_CONTAINER"; do
-              if docker container inspect "$container" > "$OUTPUT_DIRECTORY/$container-inspect.json" 2>&1; then
-                  docker logs "$container" > "$OUTPUT_DIRECTORY/$container-console.log" 2>&1
-                  if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == true ]]; then
-                      if ! timeout --signal=TERM --kill-after=10s 2m \
-                          docker exec --interactive "$container" bash -s \
-                          < "$SPIKE_DIRECTORY/diagnose-docker.sh" \
-                          > "$OUTPUT_DIRECTORY/$container-docker-storage.log" 2>&1; then
-                          echo "::warning::Docker storage diagnostics were incomplete for $container; see diagnostic log."
-                      fi
-                      if ! docker exec "$container" journalctl --no-pager --lines=200 \
-                          > "$OUTPUT_DIRECTORY/$container-journal.log" 2>&1; then
-                          echo "::warning::Could not read journal from $container; see diagnostic log."
-                      fi
+          container="$BUILD_CONTAINER"
+          if docker container inspect "$container" > "$OUTPUT_DIRECTORY/$container-inspect.json" 2>&1; then
+              docker logs "$container" > "$OUTPUT_DIRECTORY/$container-console.log" 2>&1
+              if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == true ]]; then
+                  if ! timeout --signal=TERM --kill-after=10s 2m \
+                      docker exec --interactive "$container" bash -s \
+                      < "$SPIKE_DIRECTORY/diagnose-docker.sh" \
+                      > "$OUTPUT_DIRECTORY/$container-docker-storage.log" 2>&1; then
+                      echo "::warning::Docker storage diagnostics were incomplete for $container; see diagnostic log."
                   fi
-              else
-                  echo "Container $container is absent; see Packer log for provisioning details."
+                  if ! docker exec "$container" journalctl --no-pager --lines=200 \
+                      > "$OUTPUT_DIRECTORY/$container-journal.log" 2>&1; then
+                      echo "::warning::Could not read journal from $container; see diagnostic log."
+                  fi
               fi
-          done
+          else
+              echo "Container $container is absent; see Packer log for provisioning details."
+          fi
 
       - name: Write summary
         if: always()
@@ -178,10 +174,17 @@ jobs:
               echo "| Requested nested Docker storage | $PKR_VAR_docker_storage |"
               echo "| Dependabot and AW image preloads skipped | $PKR_VAR_skip_docker_image_preload |"
               echo "| Packer provisioning and commit | $BUILD_OUTCOME |"
-              echo "| Fresh-container tests | $VERIFY_OUTCOME |"
+              echo "| Committed-image installed-file checks | $VERIFY_OUTCOME |"
+              echo "| ADC microVM runtime checks | NOT RUN - manual validation required |"
               echo ""
               echo "This is a limited container spike, not a full runner image."
+              echo "Installer smoke tests still execute during provisioning; functional Docker build/run is deferred."
               echo "ADC microVM, reboot, OCI import, ACR distribution and image layers are not tested."
+              echo 'After importing the image into ADC and starting a fresh microVM, run:'
+              echo '```bash'
+              echo 'sudo bash /imagegeneration/adc-spike/verify-spike.sh runtime'
+              echo '```'
+              echo "The archive is docker save format, not OCI layout; confirm ADC accepts it or convert through a supported registry/import path."
               if [[ "$PKR_VAR_skip_docker_image_preload" == true ]]; then
                   echo "Dependabot and AW preloads were explicitly disabled; a passing job does not validate those image pulls."
               fi
@@ -197,11 +200,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Remove only this run's containers
+      - name: Remove only this run's build container
         if: always()
         run: |
-          for container in "$BUILD_CONTAINER" "$TEST_CONTAINER"; do
-              if docker container inspect "$container" > /dev/null 2>&1; then
-                  docker container rm --force "$container"
-              fi
-          done
+          if docker container inspect "$BUILD_CONTAINER" > /dev/null 2>&1; then
+              docker container rm --force "$BUILD_CONTAINER"
+          fi
