@@ -78,23 +78,27 @@ fi
 # ephemeral, so losing recent writes on an unclean shutdown is acceptable.
 # data= and journal_async_commit can only be set on the initial mount performed by the initramfs,
 # so they have to be passed through rootflags on the kernel command line rather than through fstab.
-root_fs_type=$(findmnt --noheadings --first-only --output FSTYPE --target /)
-if [[ "$root_fs_type" != "ext4" ]]; then
-    echo "Expected an ext4 root filesystem but found '${root_fs_type}', refusing to set ext4 rootflags"
-    exit 1
-fi
+if [[ "${IMAGE_BUILD_TARGET:-azure}" != docker ]]; then
+    root_fs_type=$(findmnt --noheadings --first-only --output FSTYPE --target /)
+    if [[ "$root_fs_type" != "ext4" ]]; then
+        echo "Expected an ext4 root filesystem but found '${root_fs_type}', refusing to set ext4 rootflags"
+        exit 1
+    fi
 
-grub_dropin='/etc/default/grub.d/99-runner-performance.cfg'
-mkdir -p "$(dirname "$grub_dropin")"
-echo 'GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT rootflags=nobarrier,data=writeback,journal_async_commit,commit=30"' | tee "$grub_dropin"
-update-grub
+    grub_dropin='/etc/default/grub.d/99-runner-performance.cfg'
+    mkdir -p "$(dirname "$grub_dropin")"
+    echo 'GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT rootflags=nobarrier,data=writeback,journal_async_commit,commit=30"' | tee "$grub_dropin"
+    update-grub
+fi
 
 # Create symlink for tests running
 chmod +x $HELPER_SCRIPTS/invoke-tests.sh
 ln -s $HELPER_SCRIPTS/invoke-tests.sh /usr/local/bin/invoke_tests
 
 # Disable motd updates metadata
-sed -i 's/ENABLED=1/ENABLED=0/g' /etc/default/motd-news
+if [[ "${IMAGE_BUILD_TARGET:-azure}" != docker ]]; then
+    sed -i 's/ENABLED=1/ENABLED=0/g' /etc/default/motd-news
+fi
 
 # Remove fwupd if installed. We're running on VMs in Azure and the fwupd package is not needed.
 # Leaving it enabled means periodic refreshes show in network traffic and firewall logs

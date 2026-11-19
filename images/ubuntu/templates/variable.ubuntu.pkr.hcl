@@ -141,6 +141,19 @@ variable "apt_snapshot_timestamp" {
   type    = string
   default = ""
 }
+variable "skip_docker_image_preload" {
+  type        = bool
+  default     = false
+  description = "Skip Dependabot and AW image preloads only; existing Azure builds retain preloads."
+}
+variable "docker_storage" {
+  type    = string
+  default = "default"
+  validation {
+    condition     = contains(["default", "overlay2"], var.docker_storage)
+    error_message = "The Docker storage mode must be default or overlay2."
+  }
+}
 variable "helper_script_folder" {
   type    = string
   default = "/imagegeneration/helpers"
@@ -181,8 +194,8 @@ variable "cloud_provider" {
   default = "azure"
 
   validation {
-    condition     = contains(["azure", "aws"], var.cloud_provider)
-    error_message = "Cloud provider must be either 'azure' or 'aws'."
+    condition     = contains(["azure", "aws", "docker"], var.cloud_provider)
+    error_message = "Cloud provider must be 'azure', 'aws' or 'docker' (Ubuntu 26.04 x64)."
   }
 }
 

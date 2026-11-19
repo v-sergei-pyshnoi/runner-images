@@ -1,4 +1,4 @@
-name: ADC Ubuntu 26.04 - Packer Docker spike
+name: ADC Ubuntu 26.04 - shared Packer template
 run-name: ADC Ubuntu 26.04 x64 - ${{ inputs.operation }} - storage=${{ inputs.docker_storage }}
 
 on:
@@ -37,7 +37,7 @@ on:
       skip_docker_image_preload:
         description: Skip Dependabot and AW preloads only (functional Docker build/run runs manually in ADC)
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -46,18 +46,22 @@ jobs:
   docker-spike:
     if: inputs.operation != 'publish_saved'
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 360
     defaults:
       run:
         shell: bash
     env:
       SPIKE_DIRECTORY: images/ubuntu/adc-spike
+      PACKER_DIRECTORY: ${{ github.workspace }}/images/ubuntu/.adc-packer
       BOOTSTRAP_IMAGE: adc-ubuntu2604-bootstrap:${{ github.run_id }}-${{ github.run_attempt }}
       SPIKE_IMAGE: adc-ubuntu2604-spike:${{ github.run_id }}-${{ github.run_attempt }}
       BUILD_CONTAINER: adc-build-${{ github.run_id }}-${{ github.run_attempt }}
       PRIVILEGED: ${{ inputs.privileged }}
       PKR_VAR_docker_storage: ${{ inputs.docker_storage }}
       PKR_VAR_skip_docker_image_preload: ${{ inputs.skip_docker_image_preload }}
+      PKR_VAR_cloud_provider: docker
+      PKR_VAR_image_os: ubuntu26
+      PKR_VAR_image_version: ${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Prepare artifact directory
@@ -71,6 +75,19 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Prepare shared Ubuntu 26.04 template
+        run: |
+          mkdir -p "$PACKER_DIRECTORY"
+          cp images/ubuntu/templates/build.ubuntu-26_04.pkr.hcl \
+            images/ubuntu/templates/variable.ubuntu.pkr.hcl "$PACKER_DIRECTORY/"
+          cp "$SPIKE_DIRECTORY/docker.pkr.hcl" "$PACKER_DIRECTORY/"
+
+      - name: Reclaim preinstalled SDK space on the disposable runner
+        run: |
+          df -h /
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
 
       - name: Set up Packer
         uses: hashicorp/setup-packer@v3
@@ -86,11 +103,12 @@ jobs:
           jq -n \
             --arg commit "$GITHUB_SHA" \
             --arg architecture x64 \
+            --arg toolset_profile full \
             --arg privileged "$PRIVILEGED" \
             --arg docker_storage "$PKR_VAR_docker_storage" \
             --argjson skip_docker_image_preload "$PKR_VAR_skip_docker_image_preload" \
             --arg run "$GITHUB_RUN_ID" \
-            '{commit: $commit, architecture: $architecture, privileged: $privileged, docker_storage: $docker_storage, skip_docker_image_preload: $skip_docker_image_preload, run: $run}' \
+            '{commit: $commit, architecture: $architecture, toolset_profile: $toolset_profile, privileged: $privileged, docker_storage: $docker_storage, skip_docker_image_preload: $skip_docker_image_preload, run: $run}' \
             > "$OUTPUT_DIRECTORY/run.json"
           cp images/ubuntu/toolsets/toolset-2604.json "$OUTPUT_DIRECTORY/toolset.json"
           cp "$SPIKE_DIRECTORY/verify-spike.sh" "$OUTPUT_DIRECTORY/verify-spike.sh"
@@ -113,29 +131,29 @@ jobs:
         env:
           PKR_VAR_base_image: ${{ env.BOOTSTRAP_IMAGE }}
           PKR_VAR_container_name: ${{ env.BUILD_CONTAINER }}
-          PKR_VAR_image_tag: ${{ github.run_id }}-${{ github.run_attempt }}
-          PKR_VAR_output_directory: ${{ steps.paths.outputs.directory }}
           PKR_VAR_privileged: ${{ inputs.privileged }}
         run: |
-          packer init "$SPIKE_DIRECTORY"
-          packer fmt -check "$SPIKE_DIRECTORY"
-          packer validate "$SPIKE_DIRECTORY"
+          packer init "$PACKER_DIRECTORY"
+          packer fmt -check "$PACKER_DIRECTORY"
+          packer validate "$PACKER_DIRECTORY"
 
       - name: Provision and commit with Packer Docker builder
         id: build
         env:
           PKR_VAR_base_image: ${{ env.BOOTSTRAP_IMAGE }}
           PKR_VAR_container_name: ${{ env.BUILD_CONTAINER }}
-          PKR_VAR_image_tag: ${{ github.run_id }}-${{ github.run_attempt }}
-          PKR_VAR_output_directory: ${{ steps.paths.outputs.directory }}
           PKR_VAR_privileged: ${{ inputs.privileged }}
           PACKER_LOG: '1'
           PACKER_LOG_PATH: ${{ steps.paths.outputs.directory }}/packer-debug.log
         run: |
           # Preserve a failed container for the diagnostic and cleanup steps.
-          timeout --signal=TERM --kill-after=30s 45m \
-            packer build -on-error=abort "$SPIKE_DIRECTORY" \
+          timeout --signal=TERM --kill-after=30s 300m \
+            packer build -on-error=abort "$PACKER_DIRECTORY" \
             2>&1 | tee "$OUTPUT_DIRECTORY/packer-build.log"
+          cp "$PACKER_DIRECTORY/packer-manifest.json" \
+            images/ubuntu/Ubuntu2604-Readme.md images/ubuntu/software-report.json "$OUTPUT_DIRECTORY/"
+          image_id=$(jq --exit-status --raw-output '.builds[-1].artifact_id' "$OUTPUT_DIRECTORY/packer-manifest.json")
+          docker image tag "$image_id" "$SPIKE_IMAGE"
           docker image inspect "$SPIKE_IMAGE" > "$OUTPUT_DIRECTORY/committed-image.json"
 
       - name: Check installed files in the committed image (no runtime validation)
@@ -184,7 +202,7 @@ jobs:
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
         run: |
           {
-              echo "## Ubuntu 26.04 x64 - Packer Docker spike"
+              echo "## Ubuntu 26.04 x64 - shared Packer template"
               echo ""
               echo "| Check | Result |"
               echo "| --- | --- |"
@@ -195,7 +213,9 @@ jobs:
               echo "| Committed-image installed-file checks | $VERIFY_OUTCOME |"
               echo "| ADC microVM runtime checks | NOT RUN - manual validation required |"
               echo ""
-              echo "This is a limited container spike, not a full runner image."
+              echo "This attempts the original Ubuntu 26.04 software installer list using the Docker builder."
+              echo "VM reboot, cleanup, deprovisioning and the final full test suite are excluded from Docker builds."
+              echo "A failed installer aborts the build; the software report is produced only after installation completes."
               echo "Installer smoke tests still execute during provisioning; functional Docker build/run is deferred."
               echo "ADC microVM, reboot, OCI import, ACR distribution and image layers are not tested."
               echo 'After importing the image into ADC and starting a fresh microVM, run:'
@@ -322,7 +342,7 @@ jobs:
               echo "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/attempts/$SOURCE_ATTEMPT"
               echo ""
               echo "ADC microVM runtime validation: **NOT RUN**."
-              echo "This is a minimal spike, not the full runner toolset."
+              echo "Publishing an image does not validate its ADC runtime; see the source build metadata and software report for its toolset."
               echo "After creating a fresh ADC microVM from this image, run:"
               echo '```bash'
               echo 'sudo bash /imagegeneration/adc-spike/verify-spike.sh runtime'

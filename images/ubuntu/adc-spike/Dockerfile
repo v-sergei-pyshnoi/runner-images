@@ -12,9 +12,11 @@ RUN apt-get update \
         libicu-dev \
         libssl-dev \
         lsb-release \
+        man-db \
         sudo \
         systemd \
         systemd-sysv \
+        wget \
     && shasum --version \
     && printf '%s\n' 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assumeyes \
     && install -d -m 0700 /opt/packer-provisioning \
