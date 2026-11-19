@@ -207,7 +207,7 @@ build {
   provisioner "shell" {
     remote_folder    = local.ubuntu26_remote_folder
     environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "DEBIAN_FRONTEND=noninteractive", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
-    execute_command  = var.cloud_provider == "docker" ? "sudo --user ${var.install_user} --set-home sh -c '{{ .Vars }} NONINTERACTIVE=1 bash -e {{ .Path }}'" : "/bin/sh -c '{{ .Vars }} {{ .Path }}'"
+    execute_command  = var.cloud_provider == "docker" ? "sudo --user ${var.install_user} --set-home sh -c '{{ .Vars }} NONINTERACTIVE=1 bash -e -s' < {{ .Path }}" : "/bin/sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/../scripts/build/install-homebrew.sh"]
   }
 
