@@ -36,7 +36,10 @@ mounts:
 EOF
 
 # Add localhost alias to ::1 IPv6
-sed -i 's/::1 ip6-localhost ip6-loopback/::1     localhost ip6-localhost ip6-loopback/g' /etc/hosts
+# Docker manages /etc/hosts as a separate mount, outside the committed image.
+if [[ "${IMAGE_BUILD_TARGET:-azure}" != docker ]]; then
+    sed -i 's/::1 ip6-localhost ip6-loopback/::1     localhost ip6-localhost ip6-loopback/g' /etc/hosts
+fi
 
 # Prepare directory and env variable for toolcache
 AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
