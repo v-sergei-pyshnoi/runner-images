@@ -13,6 +13,7 @@ RUN apt-get update \
         libssl-dev \
         lsb-release \
         man-db \
+        snapd \
         sudo \
         systemd \
         systemd-sysv \
