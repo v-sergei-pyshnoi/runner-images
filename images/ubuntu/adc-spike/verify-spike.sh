@@ -21,14 +21,6 @@ fi
 
 export HELPER_SCRIPTS=/imagegeneration/helpers
 export INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers
-storage_mode=$(cat /imagegeneration/adc-spike/docker-storage)
-case "$storage_mode" in
-    default|overlay2) ;;
-    *)
-        echo "Invalid Docker storage mode recorded in the image: $storage_mode" >&2
-        exit 1
-        ;;
-esac
 
 # shellcheck source=/dev/null
 source /etc/os-release
@@ -45,12 +37,6 @@ shasum --version
 pwsh -NoProfile -Command 'Import-Module Pester -ErrorAction Stop; Get-Host'
 test -r /imagegeneration/tests/Tools.Tests.ps1
 test -x /usr/local/bin/invoke_tests
-
-if [[ "$storage_mode" == overlay2 ]]; then
-    jq --exit-status \
-        '.["storage-driver"] == "overlay2" and .features["containerd-snapshotter"] == false' \
-        /etc/docker/daemon.json
-fi
 
 if [[ "$mode" == build ]]; then
     echo "Installed-file checks passed. Docker build/run and ADC runtime validation have NOT run."
@@ -84,17 +70,6 @@ for attempt in {1..60}; do
 done
 
 docker info
-case "$storage_mode" in
-    default)
-        echo "Checking Docker with its default storage configuration."
-        ;;
-    overlay2)
-        if [[ "$(docker info --format '{{.Driver}}')" != overlay2 ]]; then
-            echo "Expected the explicitly requested overlay2 storage driver." >&2
-            exit 1
-        fi
-        ;;
-esac
 invoke_tests "Tools" "Docker"
 
 docker build --progress=plain --tag adc-spike-nested - <<'EOF'

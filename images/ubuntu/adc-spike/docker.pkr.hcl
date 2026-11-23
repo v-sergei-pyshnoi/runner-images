@@ -15,23 +15,19 @@ variable "container_name" {
   type = string
 }
 
-variable "privileged" {
-  type    = bool
-  default = false
-}
-
 source "docker" "image" {
   image      = var.base_image
   pull       = false
   commit     = true
-  privileged = var.privileged
+  privileged = true
   platform   = "linux/amd64"
   run_command = [
     "--detach", "--interactive",
     "--name", var.container_name,
     "--cgroupns=private",
-    "--entrypoint=/sbin/init",
-    "{{.Image}}"
+    "--entrypoint=/bin/sh",
+    "{{.Image}}", "-c",
+    "while [ ! -e /run/start-systemd ]; do sleep 1; done; exec /sbin/init"
   ]
   tmpfs = ["/run", "/run/lock"]
   changes = [
@@ -39,7 +35,6 @@ source "docker" "image" {
     "CMD [\"/sbin/init\"]",
     "ENV HELPER_SCRIPTS /imagegeneration/helpers",
     "ENV INSTALLER_SCRIPT_FOLDER /imagegeneration/installers",
-    "ENV DEBIAN_FRONTEND noninteractive",
-    "ENV ADC_SPIKE_DOCKER_STORAGE ${var.docker_storage}"
+    "ENV DEBIAN_FRONTEND noninteractive"
   ]
 }

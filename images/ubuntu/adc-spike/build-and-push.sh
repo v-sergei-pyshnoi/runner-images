@@ -10,6 +10,7 @@
 # Optional: ACR_REGISTRY, IMAGE_REPOSITORY, IMAGE_TAG, OUTPUT_DIRECTORY,
 #           MIN_FREE_GB (default 120, checked on both Docker and output filesystems).
 # Run only on a dedicated build VM: installs packages and runs privileged containers.
+# Packer provisions ubuntu:26.04 directly; no bootstrap Dockerfile/image is used.
 
 set +x
 set -euo pipefail
@@ -131,18 +132,15 @@ cp "$repository_root/images/ubuntu/templates/build.ubuntu-26_04.pkr.hcl" \
     "$script_directory/docker.pkr.hcl" "$template_directory/"
 
 target_image="$registry/$image_repository:$image_tag"
-bootstrap_image="adc-ubuntu2604-bootstrap:$image_tag"
 container_name="adc-build-$(date -u +%Y%m%d%H%M%S)-$$"
 export PKR_VAR_cloud_provider=docker PKR_VAR_image_os=ubuntu26
-export PKR_VAR_image_version="$image_tag" PKR_VAR_base_image="$bootstrap_image"
-export PKR_VAR_container_name="$container_name" PKR_VAR_privileged=true
-export PKR_VAR_docker_storage=default PKR_VAR_skip_docker_image_preload=true
+export PKR_VAR_image_version="$image_tag"
+export PKR_VAR_container_name="$container_name" PKR_VAR_skip_docker_image_preload=true
 export PACKER_LOG=1 PACKER_LOG_PATH="$output_directory/packer-debug.log"
 
 docker pull --platform linux/amd64 ubuntu:26.04
 base_image=$(docker image inspect --format '{{index .RepoDigests 0}}' ubuntu:26.04)
-docker build --platform linux/amd64 --build-arg "BASE_IMAGE=$base_image" \
-    --tag "$bootstrap_image" "$script_directory" 2>&1 | tee "$output_directory/bootstrap.log"
+export PKR_VAR_base_image="$base_image"
 "$packer" init "$template_directory"
 "$packer" validate "$template_directory"
 "$packer" build -on-error=abort "$template_directory" 2>&1 | tee "$output_directory/packer-build.log"

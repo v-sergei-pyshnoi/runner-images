@@ -6,8 +6,13 @@
 
 set -euo pipefail
 
+mkdir -p /imagegeneration/adc-spike
+mv /imagegeneration/verify-spike.sh /imagegeneration/adc-spike/verify-spike.sh
+bash /imagegeneration/adc-spike/verify-spike.sh build
 systemctl stop docker.socket docker.service
 systemctl stop containerd.service
+apt-get clean
+rm /etc/sudoers.d/adc-image-builder
 
 # Docker recreates this backing-filesystem device when it starts in the microVM.
 rm -f -- /var/lib/docker/volumes/backingFsBlockDev
