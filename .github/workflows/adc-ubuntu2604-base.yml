@@ -1,0 +1,121 @@
+name: ADC Ubuntu 26.04 base image
+run-name: ADC Ubuntu 26.04 base - ${{ github.run_id }}-${{ github.run_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push the tested base image to ACR (requires ACR_USERNAME and ACR_PASSWORD)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      REGISTRY: runnerubuntu26test.azurecr.io
+      IMAGE_REPOSITORY: ubuntu2604-adc-base
+      IMAGE_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
+      BASE_IMAGE: adc-ubuntu2604-base:${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Prepare output and isolated Docker configuration
+        run: |
+          mkdir -p "$RUNNER_TEMP/adc-base" "$RUNNER_TEMP/adc-base-auth"
+          chmod 700 "$RUNNER_TEMP/adc-base-auth"
+          {
+              echo "OUTPUT_DIRECTORY=$RUNNER_TEMP/adc-base"
+              echo "DOCKER_CONFIG=$RUNNER_TEMP/adc-base-auth"
+          } >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build base image
+        run: |
+          docker buildx build --platform linux/amd64 --pull --load \
+            --provenance=false --sbom=false \
+            --tag "$BASE_IMAGE" images/ubuntu/adc-base \
+            2>&1 | tee "$OUTPUT_DIRECTORY/build.log"
+
+      - name: Test systemd and key-only SSH
+        run: |
+          bash images/ubuntu/adc-base/test-base.sh \
+            2>&1 | tee "$OUTPUT_DIRECTORY/tests.log"
+
+      - name: Save and inspect every image layer
+        run: |
+          docker image inspect "$BASE_IMAGE" > "$OUTPUT_DIRECTORY/image-inspect.json"
+          docker save "$BASE_IMAGE" | gzip > "$OUTPUT_DIRECTORY/image.tar.gz"
+          python3 images/ubuntu/adc-spike/check-image-archive.py \
+            "$OUTPUT_DIRECTORY/image.tar.gz" | tee "$OUTPUT_DIRECTORY/device-check.log"
+          (cd "$OUTPUT_DIRECTORY" && sha256sum image.tar.gz > image.tar.gz.sha256)
+
+      - name: Log in to ACR
+        if: inputs.publish
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          if [[ -z "$ACR_USERNAME" || -z "$ACR_PASSWORD" ]]; then
+              echo "::error::Configure ACR_USERNAME and ACR_PASSWORD with push access."
+              exit 1
+          fi
+          printf '%s' "$ACR_PASSWORD" | docker login "$REGISTRY" \
+            --username "$ACR_USERNAME" --password-stdin
+
+      - name: Push and verify registry manifest
+        if: inputs.publish
+        run: |
+          target="$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          docker tag "$BASE_IMAGE" "$target"
+          docker push "$target"
+          docker buildx imagetools inspect "$target" --format '{{json .Manifest}}' \
+            > "$OUTPUT_DIRECTORY/registry-manifest.json"
+          digest=$(jq -er '.digest' "$OUTPUT_DIRECTORY/registry-manifest.json")
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Registry returned an invalid image digest."
+              exit 1
+          fi
+          printf '%s\n%s/%s@%s\n' "$target" "$REGISTRY" "$IMAGE_REPOSITORY" "$digest" \
+            > "$OUTPUT_DIRECTORY/image-reference.txt"
+
+      - name: Remove registry credentials
+        if: always()
+        run: |
+          if [[ -n "${DOCKER_CONFIG:-}" ]]; then
+              rm -f "$DOCKER_CONFIG/config.json"
+          fi
+
+      - name: Upload image and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adc-ubuntu2604-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/adc-base
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Build summary
+        run: |
+          {
+              echo "## ADC Ubuntu 26.04 x64 base"
+              echo "Local tag: \`$BASE_IMAGE\`"
+              if [[ -f "$OUTPUT_DIRECTORY/image-reference.txt" ]]; then
+                  echo '```text'
+                  cat "$OUTPUT_DIRECTORY/image-reference.txt"
+                  echo '```'
+              fi
+              echo "Includes systemd, SSH and Dev Tunnel CLI; no full runner toolset."
+              echo "Configure SSH authorized keys and Dev Tunnel login after booting the sandbox."
+              echo "SSH host keys are generated at boot. Password authentication is disabled."
+              echo "ACA runtime, Dev Tunnel connectivity and disk commit: **NOT TESTED**."
+          } >> "$GITHUB_STEP_SUMMARY"
