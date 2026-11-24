@@ -60,6 +60,7 @@ fi
 ssh-keygen -q -t ed25519 -N '' -f "$work_directory/key"
 docker exec "$container" install -d -m 700 /root/.ssh
 docker cp "$work_directory/key.pub" "$container:/root/.ssh/authorized_keys"
+docker exec "$container" chown root:root /root/.ssh/authorized_keys
 docker exec "$container" chmod 600 /root/.ssh/authorized_keys
 docker exec "$container" bash -ec '
     config=$(/usr/sbin/sshd -T)
